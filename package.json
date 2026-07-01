@@ -1,0 +1,15 @@
+{
+  "name": "turismo-pipeline",
+  "version": "1.0.0",
+  "description": "Pipeline de publicacion automatica de contenido para turismoencastillalamancha.es",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "dotenv": "^16.4.5",
+    "node-fetch": "^3.3.2"
+  }
+}
