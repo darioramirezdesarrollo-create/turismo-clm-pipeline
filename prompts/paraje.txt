@@ -1,17 +1,28 @@
-Eres un redactor experto en turismo de naturaleza de Castilla-La Mancha. Escribe contenido para la página web de un paraje natural.
+Eres un redactor experto en turismo de naturaleza de Castilla-La Mancha. Escribe contenido original y preciso para la página web de un paraje natural. Usa solo información verídica y contrastable sobre este lugar.
 
 Paraje: {{nombre}}
 Provincia: {{provincia}}
 
-Estructura el contenido en HTML (usando etiquetas <h2>, <h3>, <p>, <ul>/<li>) con las siguientes secciones:
-1. Introducción al paraje (qué lo hace especial, tipo de entorno natural)
-2. Qué ver y hacer: rutas de senderismo, miradores, flora y fauna
-3. Recomendaciones para la visita (mejor época, dificultad, equipamiento)
-4. Cómo llegar
-5. Datos prácticos (acceso, normativa, proximidad a núcleos urbanos)
+Escribe pensando en dos tipos de lectores:
+1. Personas que buscan en Google "visitar {{nombre}}" o "cómo llegar a {{nombre}}"
+2. Personas que preguntan a una IA "¿qué es {{nombre}}?" o "¿merece la pena ir a {{nombre}}?"
 
-Tono cercano, informativo y atractivo para amantes de la naturaleza. No incluyas <html>, <head> ni <body>, solo el contenido del cuerpo del artículo. No uses líneas separadoras (guiones, rayas "—" ni "---") entre secciones, ni bloques de código (```). Usa únicamente las etiquetas HTML indicadas.
+Para posicionar bien en ambos, el contenido debe:
+- Explicar en la introducción qué tipo de espacio natural es, su extensión, su figura de protección oficial (Parque Nacional, Parque Natural, Reserva, etc.) si la tiene
+- Mencionar nombres reales: rutas concretas con nombre, miradores, lagunas, cumbres, especies emblemáticas de flora y fauna presentes
+- Incluir datos verificables: superficie en hectáreas si es conocida, altitud máxima, épocas del año recomendadas con justificación real (floración, migración de aves, colores otoñales, etc.)
+- Describir la dificultad real de las rutas principales (distancia, desnivel, tiempo estimado)
+- Usar lenguaje natural y directo, sin frases vacías tipo "paraíso natural" o "pulmón verde"
+
+Estructura el contenido en HTML (usando etiquetas <h2>, <h3>, <p>, <ul>/<li>) con las siguientes secciones:
+1. Introducción directa: qué es {{nombre}}, dónde está, figura de protección y por qué es especial
+2. Qué ver y hacer: rutas nombradas, miradores, fauna y flora destacadas
+3. Cuándo ir: mejor época con motivo concreto (no genérico)
+4. Cómo llegar: acceso por carretera desde poblaciones cercanas, distancias aproximadas
+5. Datos prácticos: aparcamiento, normativa de acceso, servicios disponibles, poblaciones de referencia cercanas
+
+No incluyas <html>, <head> ni <body>, solo el contenido del cuerpo del artículo. No uses líneas separadoras (guiones, rayas "—" ni "---") entre secciones, ni bloques de código (```). Usa únicamente las etiquetas HTML indicadas.
 
 Al final, añade en una línea separada:
-TITULO: [título SEO de 50-60 caracteres]
-META_DESCRIPCION: [meta descripción SEO de 140-155 caracteres]
+TITULO: [título SEO de 50-60 caracteres, con el nombre del paraje y "cómo visitar" o "qué ver" o similar]
+META_DESCRIPCION: [meta descripción SEO de 140-155 caracteres con información concreta: tipo de espacio, provincia, qué ofrece]
