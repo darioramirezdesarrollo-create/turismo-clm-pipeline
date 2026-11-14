@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import { requireEnv, requireFileEnv, saveResult, top, runIfMain } from './lib.js';
+import { requireEnv, requireFileEnv, saveResult, top, runIfMain, last28Days } from './lib.js';
 
 const API = 'https://ssl.bing.com/webmaster/api.svc/json/';
 
@@ -60,20 +60,29 @@ export async function runBing() {
     call('GetPageStats', siteUrl, apikey),
   ]);
 
-  const queries = aggregate(queriesDaily, 'Query');
-  const pages = aggregate(pagesDaily, 'Page');
+  // Mismo rango que GA4 y GSC: últimos 28 días completos (excluye hoy).
+  const { startDate, endDate } = last28Days();
+  const inRange = (r) => r.Date >= startDate && r.Date <= endDate;
 
-  const cutoff = new Date(Date.now() - 28 * 864e5).toISOString().slice(0, 10);
-  const last28 = rankAndTraffic.filter((r) => r.Date >= cutoff);
+  const queries = aggregate(queriesDaily.filter(inRange), 'Query');
+  const pages = aggregate(pagesDaily.filter(inRange), 'Page');
+  const queriesAllTime = aggregate(queriesDaily, 'Query');
+  const pagesAllTime = aggregate(pagesDaily, 'Page');
+
+  const last28 = rankAndTraffic.filter(inRange);
   const clicks = last28.reduce((s, r) => s + (r.Clicks || 0), 0);
   const impressions = last28.reduce((s, r) => s + (r.Impressions || 0), 0);
 
-  const data = { source: 'bing', siteUrl, totalsLast28Days: { clicks, impressions }, rankAndTraffic, queries, pages, queriesDaily, pagesDaily };
+  const data = {
+    source: 'bing', siteUrl, startDate, endDate,
+    totalsLast28Days: { clicks, impressions },
+    rankAndTraffic, queries, pages, queriesAllTime, pagesAllTime, queriesDaily, pagesDaily,
+  };
   const file = saveResult('bing', data);
 
   const byClicks = (a, b) => (b.Clicks || 0) - (a.Clicks || 0);
-  console.log('\n== Bing Webmaster ==');
-  console.log(`Últimos 28 días → Clics: ${clicks} | Impresiones: ${impressions} | Queries: ${queries.length} | Páginas: ${pages.length}`);
+  console.log(`\n== Bing Webmaster (${startDate} → ${endDate}) ==`);
+  console.log(`Clics: ${clicks} | Impresiones: ${impressions} | Queries: ${queries.length} | Páginas: ${pages.length}`);
   console.log('Top queries (clics / impr):');
   top([...queries].sort(byClicks)).forEach((q) => console.log(`  ${q.Clicks} / ${q.Impressions}\t${q.Query}`));
   console.log(`Guardado en ${file}`);
