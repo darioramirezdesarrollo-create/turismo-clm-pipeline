@@ -9,7 +9,8 @@
     "seo:ga4": "node scripts/seo/ga4.js",
     "seo:gsc": "node scripts/seo/gsc.js",
     "seo:bing": "node scripts/seo/bing.js",
-    "seo:all": "node scripts/seo/all.js"
+    "seo:all": "node scripts/seo/all.js",
+    "seo:index": "node scripts/seo/index.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
