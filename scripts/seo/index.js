@@ -21,7 +21,7 @@ const locsIn = (xml, tag) =>
 /** Sitemaps de Rank Math que no son páginas ni entradas (da_image, categorías, etc.). */
 const isPageOrPost = (sitemapUrl) => /\/(page|post)-sitemap\d*\.xml$/.test(sitemapUrl);
 
-async function collectUrls() {
+export async function collectUrls() {
   const sitemaps = locsIn(await fetchXml(SITEMAP_INDEX), 'sitemap');
   const urls = [];
   for (const sitemap of sitemaps) {
