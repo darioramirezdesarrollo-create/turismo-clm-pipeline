@@ -34,33 +34,34 @@ function lastBingPages() {
   return { file: null, pages: new Set() };
 }
 
-export async function runBingSubmit() {
-  const siteUrl = process.env.BING_SITE || requireEnv('GSC_SITE');
-  const apikey = fs.readFileSync(requireFileEnv('BING_API_KEY_FILE'), 'utf8').trim();
+function bingConfig() {
+  return {
+    siteUrl: process.env.BING_SITE || requireEnv('GSC_SITE'),
+    apikey: fs.readFileSync(requireFileEnv('BING_API_KEY_FILE'), 'utf8').trim(),
+  };
+}
 
-  // 1. Cuota
-  const quota = (await bing('GetUrlSubmissionQuota', apikey, { query: { siteUrl } }))?.d || {};
-  console.log(`\n== Bing SubmitUrlBatch (${siteUrl}) ==`);
-  console.log(`Cuota restante: diaria ${quota.DailyQuota} | mensual ${quota.MonthlyQuota}`);
+const getQuota = async ({ siteUrl, apikey }) =>
+  (await bing('GetUrlSubmissionQuota', apikey, { query: { siteUrl } }))?.d || {};
 
-  // 2. URLs del sitemap
-  const { sitemaps, urls: entries } = await collectUrls();
-  const urls = [...new Map(entries.map((e) => [norm(e.url), e])).values()];
-  console.log(`Sitemap: ${urls.length} URLs únicas en ${sitemaps.length} sitemaps`);
+/**
+ * Envía URLs a Bing (SubmitUrlBatch) en lotes de hasta 100 sin pasarse de la cuota.
+ * Las URLs se envían en el orden dado. Si un lote falla, se detiene y lo registra en `batches`.
+ * Lanza si no se puede leer la configuración o la cuota.
+ */
+export async function submitUrls(urls, { log = () => {} } = {}) {
+  const config = bingConfig();
+  const { siteUrl, apikey } = config;
+  const quotaBefore = await getQuota(config);
+  log(`Cuota Bing restante: diaria ${quotaBefore.DailyQuota} | mensual ${quotaBefore.MonthlyQuota}`);
 
-  // 3. Priorizar las que Bing nunca ha mostrado
-  const seen = lastBingPages();
-  const neverShown = urls.filter((e) => !seen.pages.has(norm(e.url)));
-  const shown = urls.filter((e) => seen.pages.has(norm(e.url)));
-  console.log(`Referencia: ${seen.file || '(sin bing.json previo)'} → ${neverShown.length} nunca mostradas, ${shown.length} ya mostradas`);
-
-  const limit = Math.max(0, Math.min(quota.DailyQuota ?? 0, quota.MonthlyQuota ?? Infinity));
-  const toSend = [...neverShown, ...shown].slice(0, limit);
+  const limit = Math.max(0, Math.min(quotaBefore.DailyQuota ?? 0, quotaBefore.MonthlyQuota ?? Infinity));
+  const toSend = urls.slice(0, limit);
 
   const batches = [];
   for (let i = 0; i < toSend.length; i += BATCH_SIZE) {
-    const urlList = toSend.slice(i, i + BATCH_SIZE).map((e) => e.url);
-    const batch = { urlList, neverShown: urlList.filter((u) => !seen.pages.has(norm(u))).length };
+    const urlList = toSend.slice(i, i + BATCH_SIZE);
+    const batch = { urlList };
     try {
       batch.response = await bing('SubmitUrlBatch', apikey, { body: { siteUrl, urlList } });
       batch.ok = true;
@@ -69,23 +70,44 @@ export async function runBingSubmit() {
       batch.error = err.message;
     }
     batches.push(batch);
-    console.log(`  Lote ${batches.length}: ${urlList.length} URLs → ${batch.ok ? 'OK' : batch.error}`);
+    log(`  Lote ${batches.length}: ${urlList.length} URLs → ${batch.ok ? 'OK' : batch.error}`);
     if (!batch.ok) break; // un error (cuota, clave, sitio) afectaría al resto
   }
 
-  const quotaAfter = (await bing('GetUrlSubmissionQuota', apikey, { query: { siteUrl } }).catch(() => null))?.d || null;
+  const quotaAfter = await getQuota(config).catch(() => null);
+  const submitted = batches.filter((b) => b.ok).flatMap((b) => b.urlList);
+  const sentSet = new Set(submitted);
+  const notSubmitted = urls.filter((u) => !sentSet.has(u));
+  return { siteUrl, quotaBefore, quotaAfter, batches, submitted, notSubmitted, ok: notSubmitted.length === 0 };
+}
 
-  const sentOk = batches.filter((b) => b.ok).flatMap((b) => b.urlList);
-  const sentSet = new Set(sentOk.map(norm));
-  const pending = urls.filter((e) => !sentSet.has(norm(e.url))).map((e) => e.url);
+export async function runBingSubmit() {
+  const { siteUrl } = bingConfig();
+  console.log(`\n== Bing SubmitUrlBatch (${siteUrl}) ==`);
+
+  // URLs del sitemap
+  const { sitemaps, urls: entries } = await collectUrls();
+  const urls = [...new Map(entries.map((e) => [norm(e.url), e.url])).values()];
+  console.log(`Sitemap: ${urls.length} URLs únicas en ${sitemaps.length} sitemaps`);
+
+  // Priorizar las que Bing nunca ha mostrado
+  const seen = lastBingPages();
+  const isNew = (u) => !seen.pages.has(norm(u));
+  const neverShown = urls.filter(isNew);
+  console.log(`Referencia: ${seen.file || '(sin bing.json previo)'} → ${neverShown.length} nunca mostradas, ${urls.length - neverShown.length} ya mostradas`);
+
+  const result = await submitUrls([...neverShown, ...urls.filter((u) => !isNew(u))], { log: console.log });
+  result.batches.forEach((b) => { b.neverShown = b.urlList.filter(isNew).length; });
+
+  const { quotaBefore, quotaAfter, batches, submitted, notSubmitted } = result;
   const file = saveResult('bing-submit', {
-    source: 'bing-submit', siteUrl, reference: seen.file, quotaBefore: quota, quotaAfter,
+    source: 'bing-submit', siteUrl, reference: seen.file, quotaBefore, quotaAfter,
     sitemaps, totalUrls: urls.length, neverShown: neverShown.length,
-    submitted: sentOk.length, batches, notSubmitted: pending,
+    submitted: submitted.length, batches, notSubmitted,
   });
 
-  console.log(`Enviadas: ${sentOk.length}/${urls.length} (${sentOk.filter((u) => !seen.pages.has(norm(u))).length} nunca mostradas)`);
-  if (pending.length) console.log(`Sin enviar: ${pending.length} (cuota o error)`);
+  console.log(`Enviadas: ${submitted.length}/${urls.length} (${submitted.filter(isNew).length} nunca mostradas)`);
+  if (notSubmitted.length) console.log(`Sin enviar: ${notSubmitted.length} (cuota o error)`);
   if (quotaAfter) console.log(`Cuota tras el envío: diaria ${quotaAfter.DailyQuota} | mensual ${quotaAfter.MonthlyQuota}`);
   console.log(`Guardado en ${file}`);
   if (batches.some((b) => !b.ok)) process.exitCode = 1;

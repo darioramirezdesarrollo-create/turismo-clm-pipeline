@@ -183,6 +183,7 @@ async function publishPage(entry, generated, parentId) {
 async function main() {
   const pages = JSON.parse(await fs.readFile(PAGES_FILE, 'utf-8'));
   const log = JSON.parse(await fs.readFile(LOG_FILE, 'utf-8'));
+  const newlyPublished = [];
 
   for (const entry of pages) {
     if (entry.publicado) continue;
@@ -204,14 +205,16 @@ async function main() {
       entry.wp_id = result.id;
       entry.wp_link = result.link;
 
-      log.push({
+      const logEntry = {
         id: entry.id,
         nombre: entry.nombre,
         tipo: entry.tipo,
         wp_id: result.id,
         wp_link: result.link,
         fecha: new Date().toISOString()
-      });
+      };
+      log.push(logEntry);
+      newlyPublished.push(logEntry);
 
       await fs.writeFile(PAGES_FILE, JSON.stringify(pages, null, 2));
       await fs.writeFile(LOG_FILE, JSON.stringify(log, null, 2));
@@ -220,6 +223,41 @@ async function main() {
     } catch (err) {
       console.error(`  ERROR en "${entry.nombre}": ${err.message}`);
     }
+  }
+
+  await submitToBing(newlyPublished, log);
+}
+
+/**
+ * Envía a Bing solo las URLs recién publicadas y anota el resultado en cada entrada
+ * del log (campo `bing`). Un fallo aquí se registra pero no detiene el pipeline.
+ */
+async function submitToBing(newlyPublished, log) {
+  const urls = newlyPublished.map((e) => e.wp_link).filter(Boolean);
+  if (urls.length === 0) return;
+
+  console.log(`\nEnviando ${urls.length} URL(s) nuevas a Bing...`);
+  const fecha = new Date().toISOString();
+  let outcome;
+  try {
+    const { submitUrls } = await import('./scripts/seo/bing-submit.js');
+    const result = await submitUrls(urls, { log: (m) => console.log(`  ${m}`) });
+    const submitted = new Set(result.submitted);
+    const error = result.batches.find((b) => !b.ok)?.error || (result.notSubmitted.length ? 'Sin cuota diaria suficiente' : null);
+    outcome = (url) => (submitted.has(url) ? { ok: true, fecha } : { ok: false, fecha, error });
+    console.log(`  Bing: ${result.submitted.length}/${urls.length} enviadas${error ? ` (${error})` : ''}`);
+  } catch (err) {
+    console.error(`  ERROR enviando a Bing: ${err.message}`);
+    outcome = () => ({ ok: false, fecha, error: err.message });
+  }
+
+  for (const entry of newlyPublished) {
+    if (entry.wp_link) entry.bing = outcome(entry.wp_link);
+  }
+  try {
+    await fs.writeFile(LOG_FILE, JSON.stringify(log, null, 2));
+  } catch (err) {
+    console.error(`  ERROR guardando el resultado de Bing en el log: ${err.message}`);
   }
 }
 

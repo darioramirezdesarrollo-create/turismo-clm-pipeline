@@ -18,8 +18,8 @@ async function fetchXml(url) {
 const locsIn = (xml, tag) =>
   [...xml.matchAll(new RegExp(`<${tag}>\\s*<loc>([\\s\\S]*?)</loc>`, 'g'))].map((m) => clean(m[1]));
 
-/** Sitemaps de Rank Math que no son páginas ni entradas (da_image, categorías, etc.). */
-const isPageOrPost = (sitemapUrl) => /\/(page|post)-sitemap\d*\.xml$/.test(sitemapUrl);
+/** Sitemaps esperados: páginas, entradas, bodegas y restaurantes. El resto (da_image, categorías…) se avisa. */
+const isExpectedSitemap = (sitemapUrl) => /\/(page|post|bodega|restaurante)-sitemap\d*\.xml$/.test(sitemapUrl);
 
 export async function collectUrls() {
   const sitemaps = locsIn(await fetchXml(SITEMAP_INDEX), 'sitemap');
@@ -87,9 +87,9 @@ function printSummary(sitemaps, results) {
   console.log(`Canonical de Google distinto del declarado (${canonMismatch.length}):`);
   canonMismatch.forEach((r) => console.log(`  ${r.url}\n    usuario: ${r.userCanonical}\n    google:  ${r.googleCanonical}`));
 
-  const odd = sitemaps.filter((s) => !isPageOrPost(s));
+  const odd = sitemaps.filter((s) => !isExpectedSitemap(s));
   if (odd.length) {
-    console.log('\n⚠ AVISO: sitemaps que no son de páginas ni entradas:');
+    console.log('\n⚠ AVISO: sitemaps que no son de páginas, entradas, bodegas ni restaurantes:');
     odd.forEach((s) => console.log(`  ${s}${/da_image/.test(s) ? '  (da_image)' : ''}`));
   }
 }
