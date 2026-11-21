@@ -630,5 +630,19 @@
     "wp_id": 3882,
     "wp_link": "https://turismoencastillalamancha.es/turismo-albacete/pueblos-de-albacete/tobarra/",
     "fecha": "2026-11-14T11:14:29.662Z"
+  },
+  {
+    "id": "maqueda",
+    "nombre": "Maqueda",
+    "tipo": "pueblo",
+    "destino": "web",
+    "web_id": 3883,
+    "web_link": "https://turismoencastillalamancha.es/turismo-toledo/pueblos-de-toledo/maqueda/",
+    "fecha": "2026-11-21T15:35:34.858Z",
+    "despliegue": {
+      "ok": true,
+      "commit": "d0cd906",
+      "fecha": "2026-11-21T15:36:27.189Z"
+    }
   }
 ]

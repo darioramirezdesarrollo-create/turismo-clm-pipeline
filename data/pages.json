@@ -862,5 +862,18 @@
     "publicado": true,
     "wp_id": 3882,
     "wp_link": "https://turismoencastillalamancha.es/turismo-albacete/pueblos-de-albacete/tobarra/"
+  },
+  {
+    "id": "maqueda",
+    "tipo": "pueblo",
+    "provincia": "Toledo",
+    "nombre": "Maqueda",
+    "slug": "maqueda",
+    "grandparent_slug": "turismo-toledo",
+    "parent_slug": "pueblos-de-toledo",
+    "publicado": true,
+    "destino": "web",
+    "web_id": 3883,
+    "web_link": "https://turismoencastillalamancha.es/turismo-toledo/pueblos-de-toledo/maqueda/"
   }
 ]
