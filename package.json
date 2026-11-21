@@ -11,7 +11,8 @@
     "seo:bing": "node scripts/seo/bing.js",
     "seo:all": "node scripts/seo/all.js",
     "seo:index": "node scripts/seo/index.js",
-    "seo:bing-submit": "node scripts/seo/bing-submit.js"
+    "seo:bing-submit": "node scripts/seo/bing-submit.js",
+    "dry-run": "node index.js --dry-run"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",

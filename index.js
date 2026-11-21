@@ -3,8 +3,12 @@ dotenv.config({ override: true });
 import fs from 'fs/promises';
 import path from 'path';
 import Anthropic from '@anthropic-ai/sdk';
+import os from 'os';
+import * as web from './lib/web-target.js';
 
 const { WP_URL, WP_USER, WP_APP_PASSWORD, ANTHROPIC_API_KEY } = process.env;
+const PUBLISH_TARGET = process.env.PUBLISH_TARGET || 'wordpress';
+const DRY_RUN = process.argv.includes('--dry-run');
 
 const PAGES_FILE = path.resolve('data/pages.json');
 const LOG_FILE = path.resolve('logs/publicados.json');
@@ -232,8 +236,8 @@ async function main() {
  * Envía a Bing solo las URLs recién publicadas y anota el resultado en cada entrada
  * del log (campo `bing`). Un fallo aquí se registra pero no detiene el pipeline.
  */
-async function submitToBing(newlyPublished, log) {
-  const urls = newlyPublished.map((e) => e.wp_link).filter(Boolean);
+async function submitToBing(newlyPublished, log, linkKey = 'wp_link') {
+  const urls = newlyPublished.map((e) => e[linkKey]).filter(Boolean);
   if (urls.length === 0) return;
 
   console.log(`\nEnviando ${urls.length} URL(s) nuevas a Bing...`);
@@ -252,7 +256,7 @@ async function submitToBing(newlyPublished, log) {
   }
 
   for (const entry of newlyPublished) {
-    if (entry.wp_link) entry.bing = outcome(entry.wp_link);
+    if (entry[linkKey]) entry.bing = outcome(entry[linkKey]);
   }
   try {
     await fs.writeFile(LOG_FILE, JSON.stringify(log, null, 2));
@@ -261,4 +265,190 @@ async function submitToBing(newlyPublished, log) {
   }
 }
 
-main();
+// ---------- Destino "web" (../turismo-clm-web) ----------
+
+async function mainWeb() {
+  const repoDir = web.webRepoDir();
+  const env = web.webEnv();
+  console.log(`Destino: web (${repoDir}), entorno ${env}`);
+
+  const pages = JSON.parse(await fs.readFile(PAGES_FILE, 'utf-8'));
+  const log = JSON.parse(await fs.readFile(LOG_FILE, 'utf-8'));
+  if (!pages.some((e) => !e.publicado)) {
+    console.log('No hay páginas pendientes.');
+    return;
+  }
+
+  await web.prepareWebRepo(repoDir);
+  const exp = await web.loadExport(repoDir);
+  const exportDir = path.join(repoDir, 'export');
+  const newlyPublished = [];
+
+  for (const entry of pages) {
+    if (entry.publicado) continue;
+
+    console.log(`\nProcesando: ${entry.nombre} (${entry.tipo}, ${entry.provincia})...`);
+
+    try {
+      // Comprueba el padre antes de gastar una llamada a Claude.
+      web.resolveWebParent(exp, entry);
+
+      console.log('  -> Generando contenido con Claude...');
+      const generated = await generateContent(entry);
+      generated.content = wrapContent(generated.content);
+
+      console.log('  -> Añadiendo al export de la web...');
+      const item = web.buildWebEntry(exp, entry, generated);
+      try {
+        await web.writeExport(exportDir, exp, [item]);
+      } catch (err) {
+        exp.pages.pop();
+        throw err;
+      }
+
+      entry.publicado = true;
+      entry.destino = 'web';
+      entry.web_id = item.id;
+      entry.web_link = item.link;
+
+      const logEntry = {
+        id: entry.id,
+        nombre: entry.nombre,
+        tipo: entry.tipo,
+        destino: 'web',
+        web_id: item.id,
+        web_link: item.link,
+        fecha: new Date().toISOString()
+      };
+      log.push(logEntry);
+      newlyPublished.push(logEntry);
+
+      await fs.writeFile(PAGES_FILE, JSON.stringify(pages, null, 2));
+      await fs.writeFile(LOG_FILE, JSON.stringify(log, null, 2));
+
+      console.log(`  OK Añadida: ${item.link} (id ${item.id}, padre ${item.parent})`);
+    } catch (err) {
+      console.error(`  ERROR en "${entry.nombre}": ${err.message}`);
+    }
+  }
+
+  if (newlyPublished.length === 0) return;
+
+  const saveLog = async () => {
+    try {
+      await fs.writeFile(LOG_FILE, JSON.stringify(log, null, 2));
+    } catch (err) {
+      console.error(`  ERROR guardando el log: ${err.message}`);
+    }
+  };
+  const setAll = (key, value) => newlyPublished.forEach((e) => (e[key] = value));
+
+  // Commit, push y despliegue. Si algo falla, se anota en el log y no se avisa a buscadores.
+  try {
+    console.log(`\nCommit y push en ${repoDir}...`);
+    const { commit, message } = await web.commitAndPush(repoDir, newlyPublished.length);
+    console.log(`  ${commit} ${message}`);
+    setAll('despliegue', { ok: false, commit, fecha: new Date().toISOString(), error: 'Despliegue no completado' });
+
+    console.log(`\nDesplegando: ${web.deployCommand()}`);
+    await web.deploy();
+    setAll('despliegue', { ok: true, commit, fecha: new Date().toISOString() });
+  } catch (err) {
+    console.error(`  ERROR publicando la web: ${err.message}`);
+    for (const e of newlyPublished) {
+      e.despliegue = { ...(e.despliegue || {}), ok: false, fecha: new Date().toISOString(), error: err.message };
+    }
+    await saveLog();
+    process.exitCode = 1;
+    return;
+  }
+  await saveLog();
+
+  if (env !== 'production') {
+    console.log('\nWEB_ENV=staging: no se avisa a IndexNow ni a Bing.');
+    return;
+  }
+
+  const urls = newlyPublished.map((e) => e.web_link);
+  console.log(`\nAvisando a IndexNow de ${urls.length} URL(s)...`);
+  try {
+    await web.indexNow(urls);
+    setAll('indexnow', { ok: true, fecha: new Date().toISOString() });
+  } catch (err) {
+    console.error(`  ERROR enviando a IndexNow: ${err.message}`);
+    setAll('indexnow', { ok: false, fecha: new Date().toISOString(), error: err.message });
+  }
+  await saveLog();
+
+  await submitToBing(newlyPublished, log, 'web_link');
+}
+
+const SAMPLE_ENTRY = {
+  id: 'pueblo-de-prueba',
+  tipo: 'pueblo',
+  provincia: 'Toledo',
+  nombre: 'Pueblo de Prueba',
+  slug: 'pueblo-de-prueba',
+  grandparent_slug: 'turismo-toledo',
+  parent_slug: 'pueblos-de-toledo'
+};
+
+const SAMPLE_HTML = `<h2>Qué ver en {{nombre}}</h2>
+<p>Página de prueba generada por el modo <strong>--dry-run</strong> del pipeline. {{nombre}} es un pueblo de la provincia de {{provincia}}.</p>
+<h3>Monumentos</h3>
+<ul>
+<li>Iglesia parroquial</li>
+<li>Plaza Mayor</li>
+</ul>`;
+
+/**
+ * Simula la publicación en la web de una página de prueba: sin Claude, sin tocar
+ * el repo de la web, sin marcar nada como publicado y sin desplegar.
+ */
+async function dryRunWeb() {
+  const repoDir = web.webRepoDir();
+  const pages = JSON.parse(await fs.readFile(PAGES_FILE, 'utf-8'));
+  const entry = pages.find((e) => !e.publicado) || SAMPLE_ENTRY;
+  console.log(`[dry-run] Destino web (${repoDir}), WEB_ENV=${web.webEnv()}`);
+  if (PUBLISH_TARGET !== 'web') console.log(`[dry-run] Nota: PUBLISH_TARGET=${PUBLISH_TARGET}; el dry-run siempre simula el destino web.`);
+  console.log(`[dry-run] Página: ${entry.nombre} (${entry === SAMPLE_ENTRY ? 'ejemplo, no hay pendientes' : 'primera pendiente'})`);
+
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'turismo-web-dry-run-'));
+  await fs.copyFile(path.join(repoDir, 'export/urls.csv'), path.join(tmpDir, 'urls.csv'));
+
+  const exp = await web.loadExport(repoDir);
+  const generated = {
+    title: `Qué ver en ${entry.nombre} (${entry.provincia})`,
+    metaDescription: `Descubre qué ver en ${entry.nombre}, en la provincia de ${entry.provincia}: monumentos, rutas y gastronomía.`,
+    content: wrapContent(fillTemplate(SAMPLE_HTML, entry))
+  };
+  const item = web.buildWebEntry(exp, entry, generated);
+  await web.writeExport(tmpDir, exp, [item]);
+  await fs.writeFile(path.join(tmpDir, 'entrada.json'), JSON.stringify(item, null, 2) + '\n');
+
+  console.log('\nEntrada resultante:');
+  console.log(JSON.stringify(item, null, 2));
+  console.log(`\nFila de urls.csv: ${web.csvRow(item)}`);
+  console.log(`URL: ${item.link}`);
+  console.log(`\nArchivos en ${tmpDir}: entrada.json, paginas.json, urls.csv`);
+  console.log('Sin dry-run se haría: commit "Pipeline: N páginas nuevas" + push,');
+  console.log(`  ${web.deployCommand()}`);
+  console.log(web.webEnv() === 'production' ? '  y avisos a IndexNow y Bing.' : '  y ningún aviso a buscadores (staging).');
+}
+
+if (DRY_RUN) {
+  dryRunWeb().catch((err) => {
+    console.error(`ERROR en dry-run: ${err.message}`);
+    process.exitCode = 1;
+  });
+} else if (PUBLISH_TARGET === 'web') {
+  mainWeb().catch((err) => {
+    console.error(`ERROR: ${err.message}`);
+    process.exitCode = 1;
+  });
+} else if (PUBLISH_TARGET === 'wordpress') {
+  main();
+} else {
+  console.error(`PUBLISH_TARGET no válido: "${PUBLISH_TARGET}" (usa "wordpress" o "web")`);
+  process.exitCode = 1;
+}
