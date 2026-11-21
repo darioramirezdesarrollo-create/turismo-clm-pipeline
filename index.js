@@ -1,5 +1,10 @@
 import dotenv from 'dotenv';
+// Las variables del destino web pasadas por la línea de comandos mandan sobre el .env
+// (p.ej. `PUBLISH_TARGET=web WEB_ENV=staging node index.js`); el resto, como siempre.
+const WEB_VARS = ['PUBLISH_TARGET', 'WEB_ENV', 'WEB_REPO_DIR', 'WEB_DEPLOY_HOST', 'WEB_DEPLOY_DIR'];
+const shellWebEnv = Object.fromEntries(WEB_VARS.filter((k) => process.env[k] !== undefined).map((k) => [k, process.env[k]]));
 dotenv.config({ override: true });
+Object.assign(process.env, shellWebEnv);
 import fs from 'fs/promises';
 import path from 'path';
 import Anthropic from '@anthropic-ai/sdk';
